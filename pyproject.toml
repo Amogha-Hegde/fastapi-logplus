@@ -9,11 +9,14 @@ description = "A FastAPI logging toolkit with structured logging, middleware, an
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
+keywords = ["fastapi", "logging", "observability", "json-logging", "middleware", "request-id"]
 authors = [
     { name = "Amogha Hegde" },
 ]
 classifiers = [
+    "Development Status :: 3 - Alpha",
     "Framework :: FastAPI",
+    "Framework :: AsyncIO",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
@@ -27,6 +30,11 @@ classifiers = [
 dependencies = [
     "fastapi",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Amogha-Hegde/fastapi-logplus"
+Repository = "https://github.com/Amogha-Hegde/fastapi-logplus"
+Issues = "https://github.com/Amogha-Hegde/fastapi-logplus/issues"
 
 [project.optional-dependencies]
 color = [
