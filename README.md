@@ -1,65 +1,16 @@
 # fastapi-logplus
 
-`fastapi-logplus` provides reusable FastAPI logging configs for applications that need consistent console and file logging without rebuilding the same setup in every service.
-
-It is intended to cover a practical logging baseline for FastAPI apps:
-
-- plain, color, or JSON log output
-- optional rotating file logging
-- request, trace, and tenant context via middleware and logging filters
-- per-logger level overrides for noisy libraries or custom app loggers
-
-## Why This Exists
-
-FastAPI projects usually end up re-implementing the same logging concerns:
-
-- choosing a formatter for local development vs production
-- attaching request-scoped metadata to every log line
-- handling access logs and application logs consistently
-- suppressing or tuning verbose third-party loggers
-- adding file rotation when stdout-only logging is not enough
-
-`fastapi-logplus` aims to make that setup reusable and predictable.
+`fastapi-logplus` is a reusable logging toolkit for FastAPI services. It gives you one place to standardize logging config, request-scoped context, structured output, and uvicorn logger behavior across services.
 
 ## Features
 
-### Output Modes
-
-Use the logging style that fits the environment:
-
-- plain text for simple local or server logs
-- colored console output for development
-- JSON output for structured ingestion by log pipelines and observability platforms
-
-### Request Context
-
-The package is designed to carry request-scoped fields into logs, including:
-
-- request ID
-- trace ID
-- tenant ID
-
-That context is typically populated by FastAPI middleware and injected into records through a logging filter, so application code can log normally while still producing traceable output.
-
-### File Logging
-
-When needed, logging can be sent to rotating files in addition to or instead of console handlers. This is useful for:
-
-- single-host deployments
-- legacy environments without centralized log shipping
-- debugging incidents where local retention matters
-
-### Per-Logger Overrides
-
-Applications often need different log levels for different namespaces. `fastapi-logplus` is intended to support targeted logger configuration such as:
-
-- `uvicorn`
-- `uvicorn.error`
-- `uvicorn.access`
-- `fastapi`
-- your own application packages
-
-This makes it easier to reduce noise while keeping useful diagnostics.
+- plain, color, or JSON log output
+- optional timed rotating file logging
+- request-scoped context via `ContextVar`
+- request ID generation and propagation
+- trace, span, project, org, tenant, and user context extraction
+- request and response summary/header/body logging
+- per-logger level overrides for `uvicorn`, `fastapi`, `starlette`, and app loggers
 
 ## Installation
 
@@ -87,43 +38,177 @@ For development and tests:
 pip install "fastapi-logplus[test]"
 ```
 
-## Scope
+## Quick Start
 
-This repository is focused on reusable logging configuration for FastAPI, not on being a full observability platform. The goal is to give applications a clean starting point for:
+```python
+import logging.config
 
-- formatter selection
-- handler configuration
-- request-aware context propagation
-- sane defaults for common FastAPI and ASGI logger names
+from fastapi import FastAPI
 
-## Repository Layout
+from fastapi_logplus import RequestContextMiddleware, get_logger_config
 
-Current package layout:
+app = FastAPI()
+app.add_middleware(RequestContextMiddleware)
 
-- `fastapi_logplus/config.py`
-- `fastapi_logplus/formatters.py`
-- `fastapi_logplus/filters.py`
-- `fastapi_logplus/middleware.py`
-- `fastapi_logplus/request_id.py`
+logging.config.dictConfig(
+    get_logger_config(
+        log_level="INFO",
+        console_style="color",
+        include_request_id=True,
+    )
+)
 
-Sample config filenames reserved in the repository:
+
+@app.get("/health")
+async def health():
+    return {"ok": True}
+```
+
+Runnable example:
+
+```bash
+python -m examples.basic_app
+```
+
+## JSON Logging Example
+
+```python
+import logging.config
+
+from fastapi_logplus import get_logger_config
+
+logging.config.dictConfig(
+    get_logger_config(
+        log_level="INFO",
+        console_style="json",
+        include_request_id=True,
+        logger_levels={
+            "uvicorn.access": "WARNING",
+        },
+    )
+)
+```
+
+## File Logging Example
+
+```python
+import logging.config
+from pathlib import Path
+
+from fastapi_logplus import get_logger_config
+
+logging.config.dictConfig(
+    get_logger_config(
+        log_level="INFO",
+        base_dir=Path("."),
+        log_file_name="app.log",
+        enable_file_logging=True,
+        console_style="plain",
+        file_style="json",
+        include_request_id=True,
+    )
+)
+```
+
+This creates `./logs/app.log` with timed rotation via `TimedRotatingFileHandler`.
+
+## Middleware
+
+Available middleware exports:
+
+- `RequestContextMiddleware`
+- `RequestLogMiddleware`
+- `RequestIdMiddleware`
+
+`RequestContextMiddleware` is the main one to use. It:
+
+- reads incoming context headers like `x-request-id` and `x-trace-id`
+- generates a request ID when one is missing
+- binds request context into log records
+- propagates `x-request-id` back on the response
+- can emit request and response logs when enabled through env vars
+
+## Public API
+
+Config:
+
+- `get_logger_config`
+- `get_logger_config_from_file`
+- `get_logger_config_with_file`
+- `get_logger_config_without_file`
+
+Context helpers:
+
+- `bind_log_context`
+- `bind_request_context`
+- `bind_request_id`
+- `bind_trace_context`
+- `get_log_context`
+- `get_request_id`
+- `wrap_with_log_context`
+- `wrap_with_request_context`
+- `wrap_with_request_id`
+- `wrap_with_trace_context`
+
+Filters and formatters:
+
+- `RequestIdFilter`
+- `LogContextFilter`
+- `SafePlainFormatter`
+- `SafeColoredFormatter`
+- `JsonFormatter`
+
+## INI Config
+
+`get_logger_config_from_file()` reads a `[fastapi-logplus]` section. See:
 
 - `fastapi-logplus.plain.sample.ini`
 - `fastapi-logplus.json.sample.ini`
 
-## Intended Use
+Minimal example:
 
-`fastapi-logplus` is meant for teams that want one reusable logging setup across multiple FastAPI services instead of duplicating:
+```ini
+[fastapi-logplus]
+log_level = INFO
+console_style = color
+include_request_id = true
+include_uvicorn_logs = true
+```
 
-- formatter definitions
-- handler wiring
-- request context middleware
-- logger override rules
+## Environment Variables
 
-Typical usage is:
+Request logging flags:
 
-1. choose an output mode
-2. enable middleware for request context
-3. attach filters so context is included in emitted records
-4. override specific logger levels where needed
-5. optionally enable rotating file handlers
+- `FASTAPI_LOGPLUS_LOG_REQUESTS`
+- `FASTAPI_LOGPLUS_LOG_REQUEST_HEADERS`
+- `FASTAPI_LOGPLUS_LOG_RESPONSE_HEADERS`
+- `FASTAPI_LOGPLUS_LOG_REQUEST_BODY`
+- `FASTAPI_LOGPLUS_LOG_RESPONSE_BODY`
+
+Header overrides:
+
+- `FASTAPI_LOGPLUS_REQUEST_ID_HEADER`
+- `FASTAPI_LOGPLUS_TRACE_ID_HEADER`
+- `FASTAPI_LOGPLUS_SPAN_ID_HEADER`
+- `FASTAPI_LOGPLUS_PROJECT_ID_HEADER`
+- `FASTAPI_LOGPLUS_ORG_ID_HEADER`
+- `FASTAPI_LOGPLUS_TENANT_HEADER`
+- `FASTAPI_LOGPLUS_USER_ID_HEADER`
+
+Response propagation flags:
+
+- `FASTAPI_LOGPLUS_PROPAGATE_TRACE_ID`
+- `FASTAPI_LOGPLUS_PROPAGATE_SPAN_ID`
+- `FASTAPI_LOGPLUS_PROPAGATE_PROJECT_ID`
+- `FASTAPI_LOGPLUS_PROPAGATE_ORG_ID`
+- `FASTAPI_LOGPLUS_PROPAGATE_TENANT`
+- `FASTAPI_LOGPLUS_PROPAGATE_USER_ID`
+
+Structured output metadata:
+
+- `FASTAPI_LOGPLUS_SERVICE_NAME`
+- `FASTAPI_LOGPLUS_ENVIRONMENT`
+
+## Scope
+
+This package focuses on application logging and request context for FastAPI services. It does not try to replace full observability tooling.
